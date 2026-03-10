@@ -1,108 +1,136 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-
-void main() => runApp(const MaterialApp(debugShowCheckedModeBanner: false, home: WatchDashboard()));
-
-class WatchDashboard extends StatefulWidget {
-  const WatchDashboard({super.key});
-  @override
-  State<WatchDashboard> createState() => _WatchDashboardState();
-}
-
-class _WatchDashboardState extends State<WatchDashboard> {
-  String watchName = "Ultra 3"; // From your screenshot
-  String connectionStatus = "Connected";
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5), // Light grey background
-      appBar: AppBar(
-        title: const Text("Kelvin", style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFF26C6DA), // Teal color from your image
-        elevation: 0,
-        actions: [IconButton(icon: const Icon(Icons.notifications_none), onPressed: () {})],
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Teal Header Section
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                color: Color(0xFF26C6DA),
-                borderRadius: BorderRadius.only(bottomLeft: Radius.circular(30), bottomRight: Radius.circular(30)),
-              ),
-              child: Row(
-                children: [
-                  const CircleAvatar(radius: 30, backgroundColor: Colors.white, child: Icon(Icons.person, size: 40)),
-                  const SizedBox(width: 15),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text("Connected", style: TextStyle(color: Colors.white70)),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(color: Colors.orangeAccent, borderRadius: BorderRadius.circular(10)),
-                        child: const Text("Golden beans: ", style: TextStyle(fontSize: 12, color: Colors.white)),
-                      )
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Device Status Card
-            Padding(
-              padding: const EdgeInsets.all(15.0),
-              child: Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                child: ListTile(
-                  leading: const Icon(Icons.watch, color: Color(0xFF26C6DA), size: 40),
-                  title: Text("$watchName | 45:52"),
-                  subtitle: Text(connectionStatus),
-                  trailing: const Icon(Icons.battery_full, color: Colors.grey),
+@override
+Widget build(BuildContext context) {
+  return Scaffold(
+    backgroundColor: Colors.white,
+    // Bottom Navigation Bar matching your screenshot
+    bottomNavigationBar: BottomNavigationBar(
+      type: BottomNavigationBarType.fixed,
+      selectedItemColor: const Color(0xFF26C6DA),
+      unselectedItemColor: Colors.grey,
+      currentIndex: 4, // "Me" tab selected
+      items: const [
+        BottomNavigationBarItem(icon: Icon(Icons.medical_services_outlined), label: "Health"),
+        BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), label: "Data"),
+        BottomNavigationBarItem(icon: Icon(Icons.Games), label: "GAME"),
+        BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: "Exercise"),
+        BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: "Me"),
+      ],
+    ),
+    body: SingleChildScrollView(
+      child: Column(
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // 1. Teal Header
+              Container(
+                height: 220,
+                width: double.infinity,
+                color: const Color(0xFF26C6DA),
+                padding: const EdgeInsets.only(top: 60, left: 25),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text("Kelvin", style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(color: Colors.orangeAccent, borderRadius: BorderRadius.circular(20)),
+                          child: const Text("Golden beans:", style: TextStyle(color: Colors.white, fontSize: 12)),
+                        )
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    const Row(
+                      children: [
+                        Icon(Icons.link, color: Colors.white70, size: 18),
+                        Text(" Connected", style: TextStyle(color: Colors.white70)),
+                      ],
+                    )
+                  ],
                 ),
               ),
-            ),
-
-            // Settings Menu List
-            _buildMenuItem(Icons.settings, "Device settings", Colors.blue),
-            _buildMenuItem(Icons.watch_outlined, "Dial (Change Face)", Colors.cyan),
-            _buildMenuItem(Icons.directions_run, "Goal Steps", Colors.orange, trailing: "5000Step"),
-            _buildMenuItem(Icons.notifications_active, "Message Notifications", Colors.amber),
-            _buildMenuItem(Icons.vibration, "Find My Watch", Colors.orangeAccent),
-            _buildMenuItem(Icons.color_lens, "Theme Switch", Colors.pinkAccent),
-            _buildMenuItem(Icons.straighten, "Unit Switch", Colors.green),
-            _buildMenuItem(Icons.security, "Background protection", Colors.blueAccent),
-            _buildMenuItem(Icons.lock_person, "System authority management", Colors.redAccent),
-            _buildMenuItem(Icons.info_outline, "About", Colors.purpleAccent),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMenuItem(IconData icon, String title, Color color, {String? trailing}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 2),
-      child: Card(
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        child: ListTile(
-          leading: Icon(icon, color: color),
-          title: Text(title),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (trailing != null) Text(trailing, style: const TextStyle(color: Colors.grey)),
-              const Icon(Icons.chevron_right, color: Colors.grey),
+              // 2. Profile Image (Top Right)
+              Positioned(
+                right: 20,
+                top: 70,
+                child: CircleAvatar(radius: 40, backgroundColor: Colors.white.withOpacity(0.3), child: const Icon(Icons.person, size: 60, color: Colors.white)),
+              ),
+              // 3. Floating Watch Card
+              Positioned(
+                bottom: -40,
+                left: 20,
+                right: 20,
+                child: Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(15),
+                    child: Row(
+                      children: [
+                        const CircleAvatar(backgroundColor: Color(0xFFB2EBF2), child: Icon(Icons.watch, color: Color(0xFF00ACC1))),
+                        const SizedBox(width: 15),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text("Ultra 3 | 45:52", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              Text("Connected", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.battery_full, color: Colors.black54),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
-          onTap: () {
-            // Logic for each button will go here later
-          },
-        ),
+          const SizedBox(height: 50),
+          
+          // 4. "Earn Golden Beans" Banner
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(15),
+              child: Image.network('https://via.placeholder.com/400x120', fit: BoxFit.cover), // Replace with your asset later
+            ),
+          ),
+
+          // 5. Settings List
+          _buildHryItem(Icons.settings, "Device settings", Colors.blueAccent),
+          _buildHryItem(Icons.watch, "Dial", Colors.cyan),
+          _buildHryItem(Icons.directions_run, "Goal Steps", Colors.orange, trailing: "5000Step"),
+          _buildHryItem(Icons.checkroom, "Theme Switch", Colors.pinkAccent),
+          _buildHryItem(Icons.straighten, "Unit Switch", Colors.green),
+          _buildHryItem(Icons.security, "Background protection", Colors.blue),
+          _buildHryItem(Icons.lock_person, "System authority management", Colors.redAccent),
+          _buildHryItem(Icons.info, "About", Colors.purpleAccent),
+          const SizedBox(height: 20),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
+Widget _buildHryItem(IconData icon, String title, Color color, {String? trailing}) {
+  return ListTile(
+    leading: Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
+      child: Icon(icon, color: Colors.white, size: 20),
+    ),
+    title: Text(title, style: const TextStyle(fontSize: 15, color: Colors.black87)),
+    trailing: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (trailing != null) Text(trailing, style: const TextStyle(color: Colors.grey)),
+        const Icon(Icons.chevron_right, color: Colors.grey),
+      ],
+    ),
+    onTap: () {},
+  );
+}

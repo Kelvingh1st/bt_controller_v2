@@ -68,8 +68,10 @@ class _WatchDashboardState extends State<WatchDashboard> {
 
             // Settings Menu List
             _buildMenuItem(Icons.settings, "Device settings", Colors.blue),
-            _buildMenuItem(Icons.watch_outlined, "Dial", Colors.cyan),
+            _buildMenuItem(Icons.watch_outlined, "Dial (Change Face)", Colors.cyan),
             _buildMenuItem(Icons.directions_run, "Goal Steps", Colors.orange, trailing: "5000Step"),
+            _buildMenuItem(Icons.notifications_active, "Message Notifications", Colors.amber),
+            _buildMenuItem(Icons.vibration, "Find My Watch", Colors.orangeAccent),
             _buildMenuItem(Icons.color_lens, "Theme Switch", Colors.pinkAccent),
             _buildMenuItem(Icons.straighten, "Unit Switch", Colors.green),
             _buildMenuItem(Icons.security, "Background protection", Colors.blueAccent),
@@ -98,11 +100,9 @@ class _WatchDashboardState extends State<WatchDashboard> {
             ],
           ),
           onTap: () {
-            // Add Bluetooth command logic here
+            // Logic for each button will go here later
           },
         ),
       ),
     );
   }
-}
-

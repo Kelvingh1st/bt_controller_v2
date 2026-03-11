@@ -16,6 +16,7 @@ class WatchDashboard extends StatefulWidget {
 }
 
 class _WatchDashboardState extends State<WatchDashboard> {
+'String connectionStatus = "Disconnected";
   
   // 1. The "Software Update" Dialog Tool
   void _showUpdateDialog(BuildContext context) {
@@ -95,7 +96,6 @@ class _WatchDashboardState extends State<WatchDashboard> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.medical_services), label: "Health"),
           BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: "Data"),
-          BottomNavigationBarItem(icon: Icon(Icons.sports_esports), label: "GAME"),
           BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: "Exercise"),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: "Me"),
         ],
@@ -130,7 +130,7 @@ class _WatchDashboardState extends State<WatchDashboard> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                     child: const ListTile(
                       leading: CircleAvatar(backgroundColor: Color(0xFFE0F7FA), child: Icon(Icons.watch, color: Color(0xFF26C6DA))),
-                      title: Text("Ultra 3 | 45:52", style: TextStyle(fontWeight: FontWeight.bold)),
+                      title: Text("Ultra 3 | $connectionStatus", style: TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text("Connected"),
                       trailing: Icon(Icons.battery_full, color: Colors.green),
                     ),

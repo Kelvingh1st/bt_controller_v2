@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'health_data.dart'; // <--- Added the import here
 
 void main() {
   runApp(const MaterialApp(
@@ -16,7 +17,6 @@ class WatchDashboard extends StatefulWidget {
 }
 
 class _WatchDashboardState extends State<WatchDashboard> {
-'String connectionStatus = "Disconnected";
   
   // 1. The "Software Update" Dialog Tool
   void _showUpdateDialog(BuildContext context) {
@@ -92,10 +92,20 @@ class _WatchDashboardState extends State<WatchDashboard> {
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         selectedItemColor: const Color(0xFF26C6DA),
-        currentIndex: 4,
+        currentIndex: 4, // Highlights the "Me" tab
+        onTap: (index) {
+          // If the "Data" tab (index 1) is tapped, go to the Health Data Page
+          if (index == 1) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const HealthDataPage()),
+            );
+          }
+        },
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.medical_services), label: "Health"),
           BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: "Data"),
+          BottomNavigationBarItem(icon: Icon(Icons.sports_esports), label: "GAME"),
           BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: "Exercise"),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: "Me"),
         ],
@@ -119,9 +129,9 @@ class _WatchDashboardState extends State<WatchDashboard> {
                     ],
                   ),
                 ),
-                Positioned(
+                const Positioned(
                   right: 20, top: 60,
-                  child: CircleAvatar(radius: 35, backgroundColor: Colors.white24, child: const Icon(Icons.person, size: 45, color: Colors.white)),
+                  child: CircleAvatar(radius: 35, backgroundColor: Colors.white24, child: Icon(Icons.person, size: 45, color: Colors.white)),
                 ),
                 Positioned(
                   bottom: -30, left: 20, right: 20,
@@ -130,7 +140,7 @@ class _WatchDashboardState extends State<WatchDashboard> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                     child: const ListTile(
                       leading: CircleAvatar(backgroundColor: Color(0xFFE0F7FA), child: Icon(Icons.watch, color: Color(0xFF26C6DA))),
-                      title: Text("Ultra 3 | $connectionStatus", style: TextStyle(fontWeight: FontWeight.bold)),
+                      title: Text("Ultra 3 | 45:52", style: TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text("Connected"),
                       trailing: Icon(Icons.battery_full, color: Colors.green),
                     ),
@@ -171,3 +181,4 @@ class _WatchDashboardState extends State<WatchDashboard> {
     );
   }
 }
+

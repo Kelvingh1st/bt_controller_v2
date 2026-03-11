@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'health_data.dart'; // <--- Added the import here
+import 'health_data.dart';
 
 void main() {
   runApp(const MaterialApp(
@@ -17,21 +17,71 @@ class WatchDashboard extends StatefulWidget {
 }
 
 class _WatchDashboardState extends State<WatchDashboard> {
-  
-  // 1. The "Software Update" Dialog Tool
+  // 1. Move variables here (Outside the function)
+  String connectionStatus = "Connected";
+  int watchBatteryLevel = 85;
+
+@override
+void initState() {
+  super.initState();
+  _getBatteryLevel();
+
+}
+
+void _getBatteryLevel() async {
+  // 1. Start scanning for devices
+  FlutterBluePlus.startScan(timeout: Duration(seconds: 4));
+
+  // 2. Listen to scan results
+  FlutterBluePlus.scanResults.listen((results) async {
+    for (ScanResult r in results) {
+      if (r.device.localName == "Ultra 3") { // Make sure this matches your watch name!
+        await FlutterBluePlus.stopScan();
+        
+        try {
+          await r.device.connect();
+          setState(() {
+            connectionStatus = "Connected";
+          });
+
+          // 3. Discover services to find the battery
+          List<BluetoothService> services = await r.device.discoverServices();
+          for (BluetoothService service in services) {
+            if (service.uuid.toString().toUpperCase().contains("180F")) {
+              var characteristics = service.characteristics;
+              for (BluetoothCharacteristic c in characteristics) {
+                // 4. Read the battery level percentage
+                List<int> value = await c.read();
+                if (value.isNotEmpty) {
+                  setState(() {
+                    watchBatteryLevel = value[0];
+                  });
+                }
+              }
+            }
+          }
+        } catch (e) {
+          print("Connection error: $e");
+        }
+      }
+    }
+  });
+}
+  // ... the rest of your code (_showUpdateDialog, etc)
+
   void _showUpdateDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text("Update Available!"),
-        content: const Column(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Version: v1.0.3 (New)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-            SizedBox(height: 10),
-            Text("• Improved Bluetooth stability\n• New Watch Face support\n• Fixed vibration sync bug"),
+            const Text("Version: v1.0.3 (New)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+            const SizedBox(height: 10),
+            const Text("• Improved Bluetooth stability\n• New Watch Face support\n• Fixed vibration sync bug"),
           ],
         ),
         actions: [
@@ -46,7 +96,6 @@ class _WatchDashboardState extends State<WatchDashboard> {
     );
   }
 
-  // 2. The Bluetooth Scanner Tool
   void _showDeviceScanner() {
     FlutterBluePlus.startScan(timeout: const Duration(seconds: 4));
     showModalBottomSheet(
@@ -72,7 +121,13 @@ class _WatchDashboardState extends State<WatchDashboard> {
                         leading: const Icon(Icons.bluetooth),
                         title: Text(device.platformName.isEmpty ? "Unknown" : device.platformName),
                         subtitle: Text(device.remoteId.toString()),
-                        onTap: () => Navigator.pop(context),
+                        onTap: () {
+                          // Update status when a device is tapped
+                          setState(() {
+                            connectionStatus = "Connecting...";
+                          });
+                          Navigator.pop(context);
+                        },
                       );
                     },
                   );
@@ -92,9 +147,8 @@ class _WatchDashboardState extends State<WatchDashboard> {
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         selectedItemColor: const Color(0xFF26C6DA),
-        currentIndex: 4, // Highlights the "Me" tab
+        currentIndex: 4, 
         onTap: (index) {
-          // If the "Data" tab (index 1) is tapped, go to the Health Data Page
           if (index == 1) {
             Navigator.push(
               context,
@@ -121,11 +175,15 @@ class _WatchDashboardState extends State<WatchDashboard> {
                   width: double.infinity,
                   color: const Color(0xFF26C6DA),
                   padding: const EdgeInsets.only(top: 60, left: 25),
-                  child: const Column(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text("Kelvin", style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-                      Row(children: [Icon(Icons.link, color: Colors.white70, size: 18), Text(" Connected", style: TextStyle(color: Colors.white70))]),
+                      const Text("Kelvin", style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                      Row(children: [
+                        const Icon(Icons.link, color: Colors.white70, size: 18), 
+                        // UPDATED: Now uses connectionStatus variable
+                        Text(" $connectionStatus", style: const TextStyle(color: Colors.white70))
+                      ]),
                     ],
                   ),
                 ),
@@ -138,11 +196,20 @@ class _WatchDashboardState extends State<WatchDashboard> {
                   child: Card(
                     elevation: 4,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                    child: const ListTile(
-                      leading: CircleAvatar(backgroundColor: Color(0xFFE0F7FA), child: Icon(Icons.watch, color: Color(0xFF26C6DA))),
-                      title: Text("Ultra 3 | 45:52", style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text("Connected"),
-                      trailing: Icon(Icons.battery_full, color: Colors.green),
+                    child: ListTile(
+                      leading: const CircleAvatar(backgroundColor: Color(0xFFE0F7FA), child: Icon(Icons.watch, color: Color(0xFF26C6DA))),
+                      title: const Text("Ultra 3 | 45:52", style: TextStyle(fontWeight: FontWeight.bold)),
+                      // UPDATED: Dynamic status and battery percentage
+                      subtitle: Text(connectionStatus),
+                       onTap: _getBatteryLevel,
+                      trailing: Text(
+                        "$watchBatteryLevel%",
+                        style: TextStyle(
+                          color: watchBatteryLevel > 20 ? Colors.green : Colors.red, 
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16
+                        )
+                      ),
                     ),
                   ),
                 ),
@@ -181,4 +248,3 @@ class _WatchDashboardState extends State<WatchDashboard> {
     );
   }
 }
-

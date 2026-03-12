@@ -82,7 +82,7 @@ class HomeScreenState extends State<HomeScreen> {
 
         _sendToWatch(
           title: event.title ?? "Notification",
-          body: event.text ?? "",
+          body: event.content ?? "",
           isCall: isCall,
           package: event.packageName ?? "app",
         );

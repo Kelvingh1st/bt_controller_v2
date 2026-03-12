@@ -1,7 +1,8 @@
 import 'dart:typed_data';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:fl_chart/fl_chart.dart'; // Ready for your Data screen
+import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
@@ -29,12 +30,11 @@ class BleManager {
   static BluetoothDevice? connectedDevice;
   static BluetoothCharacteristic? writeChar;
 
-  // Standard UUIDs for HryFine/Ultra 3 style watches
   static final Guid serviceUuid = Guid("0000ff00-0000-1000-8000-00805f9b34fb");
   static final Guid writeUuid = Guid("0000ff02-0000-1000-8000-00805f9b34fb");
 }
 
-// --- Main Navigation Controller ---
+// --- Main Controller ---
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override
@@ -42,9 +42,13 @@ class HomeScreen extends StatefulWidget {
 }
 
 class HomeScreenState extends State<HomeScreen> {
-  int _currentIndex = 4; // Default to 'Me' screen for setup
+  int _currentIndex = 4; // Start on 'Me' screen for setup
   bool _autoMirroring = false;
   bool _isConnecting = false;
+  
+  // Image Upload State
+  bool _isUploading = false;
+  double _uploadProgress = 0.0;
 
   @override
   void initState() {
@@ -53,44 +57,33 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _requestPermissions() async {
-    // Handling modern Android 13+ and legacy permissions
-    Map<Permission, PermissionStatus> statuses = await [
+    await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.location,
       Permission.photos,
       Permission.notification,
     ].request();
-    
-    print("Permissions status: $statuses");
   }
 
-  // Notification Mirroring Logic
+  // --- Notification Logic ---
   Future<void> _toggleAutoMirroring(bool value) async {
     setState(() => _autoMirroring = value);
     if (value) {
-      final hasPermission = await NotificationListenerService.isPermissionGranted();
-      if (!hasPermission) {
-        await NotificationListenerService.requestPermission();
-      }
+      final has = await NotificationListenerService.isPermissionGranted();
+      if (!has) await NotificationListenerService.requestPermission();
 
       NotificationListenerService.notificationsStream.listen((event) {
         if (BleManager.writeChar == null) return;
-        
-        final isCall = event.packageName?.contains("phone") == true ||
-            (event.title?.toLowerCase().contains("call") ?? false);
+        final isCall = event.packageName?.contains("phone") == true;
 
         _sendToWatch(
           title: event.title ?? "Notification",
-          body: event.content ?? "",
+          body: event.content ?? "", // Fixed from analysis
           isCall: isCall,
           package: event.packageName ?? "app",
         );
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Notification Mirroring Enabled")),
-      );
     }
   }
 
@@ -105,19 +98,16 @@ class HomeScreenState extends State<HomeScreen> {
           ? [0x02, 0x00, 0x00, ...title.codeUnits, 0x00, ...body.codeUnits]
           : [0x01, 0x00, 0x00, ..."$package:$title".codeUnits, 0x00, ...body.codeUnits];
       
-      // Update length byte (standard protocol for these watches)
       if (command.length > 2) command[1] = command.length - 3;
-
-      await BleManager.writeChar!.write(Uint8List.fromList(command), withoutResponse: false);
+      await BleManager.writeChar?.write(Uint8List.fromList(command), withoutResponse: false);
     } catch (e) {
-      print("Send error: $e");
+      debugPrint("Write error: $e");
     }
   }
 
-  // Bluetooth Connection Logic
+  // --- Bluetooth Logic ---
   Future<void> _connect() async {
     setState(() => _isConnecting = true);
-    
     FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
 
     FlutterBluePlus.scanResults.listen((results) async {
@@ -128,18 +118,10 @@ class HomeScreenState extends State<HomeScreen> {
           try {
             await r.device.connect();
             BleManager.connectedDevice = r.device;
-            
-            // Request higher MTU for data-heavy transfers (notifications/images)
-            await r.device.requestMtu(223); 
-            
+            await r.device.requestMtu(223); // Important for data chunks
             await _discoverServices();
             setState(() => _isConnecting = false);
-            
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("$name Connected!")),
-            );
           } catch (e) {
-            print("Connection error: $e");
             setState(() => _isConnecting = false);
           }
           break;
@@ -156,11 +138,64 @@ class HomeScreenState extends State<HomeScreen> {
         for (var char in service.characteristics) {
           if (char.uuid == BleManager.writeUuid) {
             BleManager.writeChar = char;
-            return;
           }
         }
       }
     }
+  }
+
+  // --- Image Upload Logic (Chunked) ---
+  Future<void> _pickAndUploadWatchFace() async {
+    if (BleManager.writeChar == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Connect watch first!")));
+      return;
+    }
+
+    final picker = ImagePicker();
+    final XFile? pickedFile = await picker.pickImage(source: ImageSource.gallery);
+
+    if (pickedFile != null) {
+      setState(() { _isUploading = true; _uploadProgress = 0.0; });
+
+      File file = File(pickedFile.path);
+      Uint8List bytes = await file.readAsBytes();
+
+      img.Image? originalImage = img.decodeImage(bytes);
+      if (originalImage != null) {
+        img.Image resized = img.copyResize(originalImage, width: 240, height: 240);
+        List<int> jpgData = img.encodeJpg(resized, quality: 80);
+
+        await _sendImageInChunks(jpgData);
+      }
+      setState(() => _isUploading = false);
+    }
+  }
+
+  Future<void> _sendImageInChunks(List<int> data) async {
+    const int chunkSize = 200;
+    int totalBytes = data.length;
+
+    // Start Command
+    final startCmd = [0x03, ..._int32ToBytes(totalBytes)];
+    await BleManager.writeChar!.write(Uint8List.fromList(startCmd));
+
+    for (int i = 0; i < totalBytes; i += chunkSize) {
+      int end = (i + chunkSize < totalBytes) ? i + chunkSize : totalBytes;
+      List<int> chunk = data.sublist(i, end);
+
+      try {
+        await BleManager.writeChar!.write(Uint8List.fromList(chunk), withoutResponse: false);
+        setState(() => _uploadProgress = (i / totalBytes));
+      } catch (e) {
+        break;
+      }
+    }
+    // End Command
+    await BleManager.writeChar!.write(Uint8List.fromList([0x03, 0xFF, 0xFF]));
+  }
+
+  List<int> _int32ToBytes(int value) {
+    return [(value >> 24) & 0xFF, (value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF];
   }
 
   @override
@@ -170,16 +205,19 @@ class HomeScreenState extends State<HomeScreen> {
         child: IndexedStack(
           index: _currentIndex,
           children: [
-            const Center(child: Text("Health Data")),
-            const Center(child: Text("Analytics Chart")),
-            const Center(child: Text("Games")),
-            const Center(child: Text("Exercise Tracking")),
+            const Center(child: Text("Health Data Screen")),
+            const DataScreen(),
+            const Center(child: Text("Game Screen")),
+            const Center(child: Text("Exercise Screen")),
             MeScreen(
               onConnect: _connect,
               isConnecting: _isConnecting,
               autoMirroring: _autoMirroring,
               onToggleMirroring: _toggleAutoMirroring,
               isConnected: BleManager.connectedDevice != null,
+              onUploadImage: _pickAndUploadWatchFace,
+              isUploading: _isUploading,
+              uploadProgress: _uploadProgress,
             ),
           ],
         ),
@@ -193,7 +231,7 @@ class HomeScreenState extends State<HomeScreen> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.health_and_safety), label: "Health"),
           BottomNavigationBarItem(icon: Icon(Icons.insert_chart), label: "Data"),
-          BottomNavigationBarItem(icon: Icon(Icons.gamepad), label: "Game"),
+          BottomNavigationBarItem(icon: Icon(Icons.gamepad), label: "GAME"),
           BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: "Exercise"),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: "Me"),
         ],
@@ -202,21 +240,59 @@ class HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// --- Me Screen (Settings & Connection) ---
+// --- Data Screen (fl_chart) ---
+class DataScreen extends StatelessWidget {
+  const DataScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Heart Rate (BPM)", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 24),
+          SizedBox(
+            height: 200,
+            child: LineChart(
+              LineChartData(
+                gridData: const FlGridData(show: false),
+                titlesData: const FlTitlesData(show: false),
+                borderData: FlBorderData(show: false),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: [const FlSpot(0, 72), const FlSpot(1, 75), const FlSpot(2, 70), const FlSpot(3, 82), const FlSpot(4, 78)],
+                    isCurved: true,
+                    color: Colors.teal,
+                    barWidth: 4,
+                    belowBarData: BarAreaData(show: true, color: Colors.teal.withOpacity(0.1)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Me Screen ---
 class MeScreen extends StatelessWidget {
   final Future<void> Function() onConnect;
   final bool isConnecting;
   final bool autoMirroring;
   final bool isConnected;
   final Future<void> Function(bool) onToggleMirroring;
+  final VoidCallback onUploadImage;
+  final bool isUploading;
+  final double uploadProgress;
 
   const MeScreen({
-    super.key,
-    required this.onConnect,
-    required this.isConnecting,
-    required this.autoMirroring,
-    required this.isConnected,
-    required this.onToggleMirroring,
+    super.key, required this.onConnect, required this.isConnecting,
+    required this.autoMirroring, required this.isConnected,
+    required this.onToggleMirroring, required this.onUploadImage,
+    required this.isUploading, required this.uploadProgress,
   });
 
   @override
@@ -227,31 +303,29 @@ class MeScreen extends StatelessWidget {
         Card(
           child: ListTile(
             leading: Icon(Icons.watch, color: isConnected ? Colors.green : Colors.grey),
-            title: Text(isConnected ? "Watch Connected" : "No Watch Found"),
-            subtitle: Text(isConnecting ? "Scanning..." : "Status check"),
-            trailing: isConnecting 
-              ? const CircularProgressIndicator()
-              : ElevatedButton(
-                  onPressed: isConnected ? null : onConnect,
-                  child: const Text("Connect"),
-                ),
+            title: Text(isConnected ? "Watch Connected" : "No Watch"),
+            trailing: isConnecting ? const CircularProgressIndicator() : ElevatedButton(
+              onPressed: isConnected ? null : onConnect,
+              child: const Text("Connect"),
+            ),
           ),
         ),
-        const SizedBox(height: 20),
-        const Text("Settings", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        const SizedBox(height: 10),
+        if (isUploading) ...[
+          LinearProgressIndicator(value: uploadProgress, color: Colors.teal),
+          Center(child: Text("${(uploadProgress * 100).toInt()}% Uploading...")),
+        ],
+        const Divider(),
         SwitchListTile(
-          title: const Text("Auto Notification Mirroring"),
-          subtitle: const Text("Forward phone alerts to watch"),
+          title: const Text("Notification Mirroring"),
           value: autoMirroring,
           onChanged: isConnected ? onToggleMirroring : null,
         ),
         ListTile(
-          leading: const Icon(Icons.image),
-          title: const Text("Custom Watch Face"),
-          subtitle: const Text("Upload image to watch"),
-          onTap: () {
-            // Logic for image_picker goes here
-          },
+          leading: const Icon(Icons.add_a_photo),
+          title: const Text("Set Watch Face"),
+          subtitle: const Text("Upload image from gallery"),
+          onTap: isConnected && !isUploading ? onUploadImage : null,
         ),
       ],
     );

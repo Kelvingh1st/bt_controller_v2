@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:fl_chart/fl_chart.dart';
+import 'package:fl_chart/fl_chart.dart'; // Ready for your Data screen
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
@@ -13,24 +13,28 @@ class MyApp extends StatelessWidget {
   const MyApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'My Watch App',
-        theme: ThemeData(primarySwatch: Colors.teal, useMaterial3: true),
+        title: 'Ultra 3 Companion',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          primarySwatch: Colors.teal,
+          useMaterial3: true,
+          brightness: Brightness.light,
+        ),
         home: const HomeScreen(),
       );
 }
 
-// BLE Manager
+// --- BLE Manager ---
 class BleManager {
   static BluetoothDevice? connectedDevice;
   static BluetoothCharacteristic? writeChar;
 
-  static final Guid serviceUuid =
-      Guid("0000ff00-0000-1000-8000-00805f9b34fb");
-  static final Guid writeUuid =
-      Guid("0000ff02-0000-1000-8000-00805f9b34fb");
+  // Standard UUIDs for HryFine/Ultra 3 style watches
+  static final Guid serviceUuid = Guid("0000ff00-0000-1000-8000-00805f9b34fb");
+  static final Guid writeUuid = Guid("0000ff02-0000-1000-8000-00805f9b34fb");
 }
 
-// Home Screen
+// --- Main Navigation Controller ---
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override
@@ -38,8 +42,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class HomeScreenState extends State<HomeScreen> {
-  int _currentIndex = 2;
+  int _currentIndex = 4; // Default to 'Me' screen for setup
   bool _autoMirroring = false;
+  bool _isConnecting = false;
 
   @override
   void initState() {
@@ -48,22 +53,30 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _requestPermissions() async {
-    await [
+    // Handling modern Android 13+ and legacy permissions
+    Map<Permission, PermissionStatus> statuses = await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
+      Permission.location,
       Permission.photos,
-      Permission.notification
+      Permission.notification,
     ].request();
+    
+    print("Permissions status: $statuses");
   }
 
+  // Notification Mirroring Logic
   Future<void> _toggleAutoMirroring(bool value) async {
     setState(() => _autoMirroring = value);
     if (value) {
-      final has = await NotificationListenerService.isPermissionGranted();
-      if (!has) await NotificationListenerService.requestPermission();
+      final hasPermission = await NotificationListenerService.isPermissionGranted();
+      if (!hasPermission) {
+        await NotificationListenerService.requestPermission();
+      }
 
       NotificationListenerService.notificationsStream.listen((event) {
         if (BleManager.writeChar == null) return;
+        
         final isCall = event.packageName?.contains("phone") == true ||
             (event.title?.toLowerCase().contains("call") ?? false);
 
@@ -76,7 +89,7 @@ class HomeScreenState extends State<HomeScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Auto mirroring ON")),
+        const SnackBar(content: Text("Notification Mirroring Enabled")),
       );
     }
   }
@@ -87,36 +100,48 @@ class HomeScreenState extends State<HomeScreen> {
     required bool isCall,
     required String package,
   }) async {
-    final command = isCall
-        ? [0x02, 0x00, 0x00, ...title.codeUnits, 0x00, ...body.codeUnits]
-        : [
-            0x01,
-            0x00,
-            0x00,
-            ..."$package:$title".codeUnits,
-            0x00,
-            ...body.codeUnits
-          ];
-    command[1] = command.length - 3;
-    await BleManager.writeChar!.write(Uint8List.fromList(command));
+    try {
+      final command = isCall
+          ? [0x02, 0x00, 0x00, ...title.codeUnits, 0x00, ...body.codeUnits]
+          : [0x01, 0x00, 0x00, ..."$package:$title".codeUnits, 0x00, ...body.codeUnits];
+      
+      // Update length byte (standard protocol for these watches)
+      if (command.length > 2) command[1] = command.length - 3;
+
+      await BleManager.writeChar!.write(Uint8List.fromList(command), withoutResponse: false);
+    } catch (e) {
+      print("Send error: $e");
+    }
   }
 
+  // Bluetooth Connection Logic
   Future<void> _connect() async {
-    FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
+    setState(() => _isConnecting = true);
+    
+    FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
 
     FlutterBluePlus.scanResults.listen((results) async {
       for (var r in results) {
-        if (r.device.platformName.contains("Ultra 3") ||
-            r.device.platformName.contains("HryFine")) {
-          await r.device.connect();
-          BleManager.connectedDevice = r.device;
-          await _discoverServices();
-          setState(() {});
+        final name = r.device.platformName;
+        if (name.contains("Ultra 3") || name.contains("HryFine")) {
           FlutterBluePlus.stopScan();
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Ultra 3 Connected!")),
-          );
+          try {
+            await r.device.connect();
+            BleManager.connectedDevice = r.device;
+            
+            // Request higher MTU for data-heavy transfers (notifications/images)
+            await r.device.requestMtu(223); 
+            
+            await _discoverServices();
+            setState(() => _isConnecting = false);
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("$name Connected!")),
+            );
+          } catch (e) {
+            print("Connection error: $e");
+            setState(() => _isConnecting = false);
+          }
           break;
         }
       }
@@ -124,13 +149,13 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _discoverServices() async {
+    if (BleManager.connectedDevice == null) return;
     final services = await BleManager.connectedDevice!.discoverServices();
     for (var service in services) {
       if (service.uuid == BleManager.serviceUuid) {
         for (var char in service.characteristics) {
           if (char.uuid == BleManager.writeUuid) {
             BleManager.writeChar = char;
-            print("Ultra 3 write characteristic ready!");
             return;
           }
         }
@@ -141,29 +166,35 @@ class HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: [
-        const HealthScreen(),
-        const DataScreen(),
-        const GameScreen(),
-        const ExerciseScreen(),
-        MeScreen(
-          onConnect: _connect,
-          autoMirroring: _autoMirroring,
-          onToggleMirroring: _toggleAutoMirroring,
+      body: SafeArea(
+        child: IndexedStack(
+          index: _currentIndex,
+          children: [
+            const Center(child: Text("Health Data")),
+            const Center(child: Text("Analytics Chart")),
+            const Center(child: Text("Games")),
+            const Center(child: Text("Exercise Tracking")),
+            MeScreen(
+              onConnect: _connect,
+              isConnecting: _isConnecting,
+              autoMirroring: _autoMirroring,
+              onToggleMirroring: _toggleAutoMirroring,
+              isConnected: BleManager.connectedDevice != null,
+            ),
+          ],
         ),
-      ][_currentIndex],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (i) => setState(() => _currentIndex = i),
         selectedItemColor: Colors.teal,
+        unselectedItemColor: Colors.grey,
+        type: BottomNavigationBarType.fixed,
         items: const [
-          BottomNavigationBarItem(
-              icon: Icon(Icons.health_and_safety), label: "Health"),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.insert_chart), label: "Data"),
-          BottomNavigationBarItem(icon: Icon(Icons.gamepad), label: "GAME"),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.directions_run), label: "Exercise"),
+          BottomNavigationBarItem(icon: Icon(Icons.health_and_safety), label: "Health"),
+          BottomNavigationBarItem(icon: Icon(Icons.insert_chart), label: "Data"),
+          BottomNavigationBarItem(icon: Icon(Icons.gamepad), label: "Game"),
+          BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: "Exercise"),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: "Me"),
         ],
       ),
@@ -171,119 +202,58 @@ class HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// Health Screen
-class HealthScreen extends StatelessWidget {
-  const HealthScreen({super.key});
+// --- Me Screen (Settings & Connection) ---
+class MeScreen extends StatelessWidget {
+  final Future<void> Function() onConnect;
+  final bool isConnecting;
+  final bool autoMirroring;
+  final bool isConnected;
+  final Future<void> Function(bool) onToggleMirroring;
+
+  const MeScreen({
+    super.key,
+    required this.onConnect,
+    required this.isConnecting,
+    required this.autoMirroring,
+    required this.isConnected,
+    required this.onToggleMirroring,
+  });
+
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
+    return ListView(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          Row(children: [
-            const Text("Health",
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            const Spacer(),
-            const Text("Kumasi 23~36℃")
-          ]),
-          const SizedBox(height: 20),
-          Container(
-            height: 200,
-            decoration: BoxDecoration(
-                color: Colors.teal, borderRadius: BorderRadius.circular(20)),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 180,
-                  height: 180,
-                  child: CircularProgressIndicator(
-                      value: 16 / 5000,
-                      strokeWidth: 12,
-                      backgroundColor: Colors.white24,
-                      valueColor:
-                          const AlwaysStoppedAnimation(Colors.white)),
+      children: [
+        Card(
+          child: ListTile(
+            leading: Icon(Icons.watch, color: isConnected ? Colors.green : Colors.grey),
+            title: Text(isConnected ? "Watch Connected" : "No Watch Found"),
+            subtitle: Text(isConnecting ? "Scanning..." : "Status check"),
+            trailing: isConnecting 
+              ? const CircularProgressIndicator()
+              : ElevatedButton(
+                  onPressed: isConnected ? null : onConnect,
+                  child: const Text("Connect"),
                 ),
-                Column(mainAxisSize: MainAxisSize.min, children: const [
-                  Icon(Icons.directions_walk,
-                      size: 40, color: Colors.white),
-                  Text("16",
-                      style: TextStyle(
-                          fontSize: 48,
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold)),
-                  Text("Steps", style: TextStyle(color: Colors.white70))
-                ]),
-              ],
-            ),
           ),
-          const SizedBox(height: 20),
-          Row(children: [
-            _smallCard("Calories", "0.38", Icons.local_fire_department,
-                Colors.red),
-            const SizedBox(width: 12),
-            _smallCard("Distance", "0.01km", Icons.location_on, Colors.blue)
-          ]),
-          const SizedBox(height: 12),
-          _smallCard("Goal", "0%", Icons.flag, Colors.orange),
-          const SizedBox(height: 30),
-          _metricRow(Icons.fitness_center, "-- km", "Exercise"),
-          _metricRow(Icons.monitor_heart, "86 Times/min", "Heart rate",
-              date: "03-11"),
-          _metricRow(Icons.nightlight_round, "0h0m", "Sleep"),
-        ],
-      ),
-    );
-  }
-
-  static Widget _smallCard(
-      String title, String value, IconData icon, Color color) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8)]),
-        child: Row(children: [
-          Icon(icon, color: color, size: 32),
-          const SizedBox(width: 12),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title),
-            Text(value,
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold))
-          ])
-        ]),
-      ),
-    );
-  }
-
-  static Widget _metricRow(IconData icon, String value, String label,
-      {String? date}) {
-    return Card(
-      child: ListTile(
-        leading: Icon(icon, size: 40, color: Colors.teal),
-        title: Text(value,
-            style: const TextStyle(
-                fontSize: 18, fontWeight: FontWeight.bold)),
-        subtitle: Text(label),
-        trailing: date != null
-            ? Text(date)
-            : const Icon(Icons.chevron_right),
-      ),
+        ),
+        const SizedBox(height: 20),
+        const Text("Settings", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        SwitchListTile(
+          title: const Text("Auto Notification Mirroring"),
+          subtitle: const Text("Forward phone alerts to watch"),
+          value: autoMirroring,
+          onChanged: isConnected ? onToggleMirroring : null,
+        ),
+        ListTile(
+          leading: const Icon(Icons.image),
+          title: const Text("Custom Watch Face"),
+          subtitle: const Text("Upload image to watch"),
+          onTap: () {
+            // Logic for image_picker goes here
+          },
+        ),
+      ],
     );
   }
 }
-
-// Data Screen
-class DataScreen extends StatelessWidget {
-  const DataScreen({super.key});
-  @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            const Text("Health data",
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-
